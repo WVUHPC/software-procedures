@@ -1,0 +1,421 @@
+\documentclass{article}
+
+\usepackage{minted}
+\usemintedstyle{native}
+
+\title{WVU Research Computing HPC Software Install Documentation}
+\author{M Carlise}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\newpage
+
+\section{Install Procedures}
+
+All software needs to be built using the build username.  Do not build software 
+as root.  Each build should get there own directory in /shared/software.  From 
+within that subdirectory, we ideally want three directories to separate out 
+source, build, and install directories.  This is achieved with directories: 
+source, build, install, and tarballs.  
+
+Place tarballs in the tarball directory.  When you extract the tarball, make 
+sure it's output directory is either moved to the source directory, or have 
+tarball directly write to that directory (-C).  Most software packages untar as 
+'pkgname-x.y.z'.  In this way, the source directory will contain easily 
+identifiable source directories.  However, if the tarball unpacks to something 
+amibigous like 'pkgname' or 'pkgname2'.  Rename the directory so future 
+installs can be easily identified.  From there, depending on what build script 
+is used, there will be different ways to populate the build and install 
+directories.
+
+\begin{center}
+\begin{table}[h]
+\begin{tabular}{ll}
+		source & Extract the tarball to this directory \\
+		build & Where configure should be executed \\
+		install & Install dir (prefix value) \\
+		tarball & where tarballs should be stored \\
+\end{tabular}
+\caption {Ideal directory sub directory structure for each build}
+\end{table}
+\end{center}
+
+\begin{minted}{bash}
+# Example tar command to untar into source directory
+$ tar xv -C ../source -f pkgname.x.y.z.tar.gz
+\end{minted}
+
+\subsection{Environment Modulefiles}
+
+Three default environment modulefiles exist for easy install.  One intel 
+(environment/intel) and two gcc (environment/gcc-serial, environment/gcc-mpi).  
+Each of these modulefiles load a number of modulefiles.  They setup a working 
+compatible environment where the entire stack is either intel or gcc.  With 
+gcc-mpi, you will need to additionally load a mpi environment of choice.  The 
+current policy, is that all request centrally installed software is built with 
+one of the gcc environment files.  And the latest openmpi library is used for 
+MPI applications (mpi/openmpi).  These modulefiles simplify installs from our 
+end.
+
+\subsection{Autotools}
+
+Autotools supports vpath building very nicely (they invented it).  Simply 
+create a subdirectory in the build directory.  I use the version number only 
+(since the package is implied by the parent directory structure).
+
+Run the configure script from the version subdirectory.  Setup the prefix 
+option to install in a version subdirectory in the install directory.  The 
+command will look something like:
+
+\begin{minted}{bash}
+# From /shared/software/pkgName
+$ cd build
+$ mkdir x.y.z
+$ cd x.y.z
+$ ../../source/pkgname-x.y.z/configure --prefix=../../install/x.y.z
+$ make
+$ make install
+\end{minted}
+
+Make sure you record your configure options, to document in the modulefile 
+(Writing Modulefile section)
+
+\subsection{Cmake}
+
+Cmake doesn't allow the separation of the build directory.  You have to create 
+a 'build' directory and run the cmake 'configure' step from within the source 
+subdirectory 'source/pkgname-x.y.z'   The prefix option is the same, however, 
+so Cmake builds should still have an 'install/x.y.z' directory where everything 
+is installed to.
+
+\begin{minted}{bash}
+# From the root directory /shared/software/pkgName
+$ cd source/pkgName-x.y.z
+$ mkdir build
+$ cd build
+$ cmake .. -CMAKE_PREFIX=/shared/software/pkgname/install/x.y.z
+$ make
+$ make install
+\end{minted}
+
+Make sure you record your configure options, to document in the modulefile 
+(Writing Modulefile section).
+
+\subsection{Custom Build Scripts}
+
+Any custom build script will still rely on make (hopefully).  I have yet to see 
+a pkg get distributed without at least a makefile.  But these packages tend to 
+write their own configure script on top of the make file; or chain makefiles in 
+an inflexible way.
+
+These constraints makes it difficult to put in place a serve all install 
+procedure.  However, every install should be as closely implemented as possible 
+to autotools directory structure.  There are two specific constraints that are 
+almost guraunteed with custom scripts.
+
+First, the source directory, build directory, and install directory will be the 
+same.  So often, we end up with only two directories.  A tarball directory, and 
+an install directory.  Rename the install directory to correspond with the 
+version number (x.y.z).
+
+Second, these builds are not very portable.  There almost always require 
+modification of their make file or build scripts to fit our systems.  The 
+changes should be recorded using a formal patch file.
+
+\subsection{Create and Use Patches}
+
+Patches should be created using the diff program.
+
+\begin{minted}{bash}
+		$ diff -Naur original changed > patch.txt
+\end{minted}
+
+For this to work, you need two copies of source directory.  One freshly 
+untarred (original) and the other with the applied changes to the Makefile or 
+other build scripts (changed).  In practice, you will often need three 
+directories.  In order to determine if the changes to the Makefile are correct, 
+you usually need to run the make command.  This creates a large number of 
+changes to the directory that you do not want captured in the patch.
+
+To facilitate this process, if you need to make changes to the source 
+directory, imediately copy the directory twice.  So you now have three copies 
+of source directory.  Make your changes and record them in a temporary file, or 
+pen and paper (whatever works for you).  Test the changes with the make 
+command.  When the build is successful, make the recorded changes to the second 
+copy of the source file; create the diff patch between the modified second copy 
+and the third untouched copy.
+
+\begin{minted}{bash}
+# From /shared/software/pkgName assuming the tarball untarred to pkgName-x.y.z
+$ cp -r pkgName-x.y.z original
+$ cp -r pkgName-x.y.z secondCopy
+# Make changes to pkgName-x.y.z until package builds
+# Make same changes to secondCopy
+$ diff -Naur original secondCopy > patch-x.y.z
+$ rm -rf secondCopy original
+\end{minted}
+
+Patches should be placed in /shared/software/pkgName/patch.  Subdirectories 
+correponding to package version should be used if patches get complicated, 
+where we have multiple patches corresponding to different build types (MPI, 
+GPU, serial) and different versions.  An example would be 
+/shared/software/pkgName/patch/x.y.z.
+
+The location of the patch should be recorded in the modulefile.
+
+\subsubsection{Apply a patch}
+
+To apply a patch, you can use the patch command.
+
+\begin{minted}{bash}
+# From outside directory needed to be patched
+$ patch -p1 < patch.txt
+\end{minted}
+
+\noindent Executed from within the source directory.
+
+\subsection{Softlink structure}
+
+Inside the install directory, there should always be a soft link called latest 
+that points to the highest version of the installed software.
+
+\subsection{Python Modules}
+
+Python modules we currently centrally support:
+
+\begin{itemize}
+	\item setuptools
+	\item virtualenv
+	\item scipy
+	\item numpy
+	\item matplotlib
+	\item qiime
+\end{itemize}
+
+These modules are staples (dependencies) of many scientific workflows.  
+Additionally, these specific modules are dependent on lapack/blas (or MKL); and 
+many python users have difficulty compiling/installing these modules.
+
+These modules require that every time python is upgraded, these modulefiles are 
+re-installed for the new python interpreter.  Except virtualenv, we only 
+supported that because python 2.6 didn't have the ability natively.  Python now 
+ships with native virtualenv support.
+
+All other python modules need to be installed locally by the end user; either 
+through pip - or highly recommened using a virtualenv of the latest python 
+intrepreter on the system.  Virtualenv procedures are explained on the Wiki.
+
+\subsubsection{After python install}
+
+After a new version of python is installed, and a new modulefile is created; 
+the 'build' username should be able to run these commands to setup correctly 
+the python environment:
+
+\begin{minted}{bash}
+$ module load compilers/python/<<version>>
+$ easy_install pip
+$ pip install setuptools
+$ pip install numpy
+$ pip install scipy
+$ pip install matplotlib
+$ pip install qiime
+\end{minted}
+
+Make sure you update the modulefile to list the correct versions of these 
+packages.
+
+\subsection{R packages}
+
+Only a small subset of R packages are centrally installed: Rcpp and 
+Bioconductor.  These packages are essential to many scientific packages, and 
+tend to be difficult to install for our users who are not familiar with 
+compiling from source.  
+
+These modules require that every time R is upgraded, these modulefiles are 
+re-installed for the new R interpreter.
+
+All other R packages need to be installed locally by the end user.  From within 
+the new R interpreter, you can use the following R commands to centrally 
+install (as 'build' username).
+
+\begin{minted}{bash}
+> install.packages('Rcpp')
+> source("http://bioconductor.org/biocLite.R")
+> biocLite()
+\end{minted}
+
+\textbf{Note}: The above commands will only install core bioconductor packages.  
+From this, we recommend that users manaully install desired packages.  
+Bioconductor has many one-off packages that don't build anymore.  It would be 
+nearly impossible for us to support anything not part of the core.
+
+\textbf{Note}: Rcpp relies on C++ libraries.  So you will certainly need to use 
+the latest GCC compiler.
+
+\subsection{R and Python package directories}
+
+Installing R or python modules (i.e. the core ones we support) does not require 
+an install directory.  These modules/packages will be installed into the 
+site-wide library directory for the intended interpreter.  However, we still 
+should have a package directory (/shared/software/pkgName), with a tarball and 
+build directory.  R installs directly from the tarball, so we only need the 
+tarballs from any installs/upgrades.  However, in both R and python, there 
+should be a parent directory structure to connect the tarballs with their 
+intended Intrepreter (i.e. pkgName/2.7.10/tarball).
+
+\section{Writing Modulefiles}
+
+After the installation of any program or library; a modulefile should be 
+written for the package of the version.  Our modulefiles all follow a similiar 
+template, and should be closely followed for consistency, and self 
+documentation purposes.
+
+\subsection{Modulefile template}
+
+\begin{minted}{bash}
+#%Module1.0
+
+module-whatis	"Name: pkgone"
+module-whatis	"Version: 2"
+module-whatis	"Category: Chemistry"
+module-whatis	"Description: Chemistry Kit"
+module-whatis	"URL: https://www.pkgone.org"
+module-whatis 	"Configure Opts: None"
+module-whatis 	"Make Opts: None"
+module-whatis 	"Install Opts: None"
+module-whatis 	"Patch: /shared/software/pkgone/patch/2"
+
+set pkgname pkgone
+set version latest
+set basedir /shared/software
+set installdir ${basedir}/${pkgname}/install/${version}
+
+
+module load dependencies
+
+prepend-path PATH           ${installdir}/bin
+prepend-path PYTHONPATH     ${installdir}/lib
+\end{minted}
+
+\subsubsection{Module-whatis}
+
+The module-whatis section is important.  This section self-documents what the 
+package is: name, version, category, description, and URL/docmentation.  The 
+category should be vague such as: compiler, library, chemistry, genomics, 
+engineering, physics, etc...).  Anything end-user (not a building block, per 
+se) should have a category close to their discipline.  Description can often be 
+the first sentence in there documentation.  There is almost always a short 
+description.
+
+The remaining module-whatis entries: 'configure options', 'make opts', 'install 
+opts', patch, describe important information that about how the build process 
+was performed.  These entries should be any command-line options used during 
+the configure, make, and make install portions of the build.  For instance, if 
+your configure file looks like:
+
+\begin{minted}{bash}
+configure --with-multiple-threads --no-shared-libs \	
+--prefix=pkgName/install/4.5.7
+\end{minted}
+
+\noindent The module-whatis entry needs to be "Configure Opts: 
+--with-multiple-threads --no-shared-libs".  The prefix entry does not need to 
+be specified, since it's assumed you followed the correct directory structure.  
+Additionally, command-line options passed to Make or Make install needs to be 
+included.  This usually means when variables are specified:
+
+\begin{minted}{bash}
+	MPI_HOME=/opt/openmpi make
+\end{minted}
+
+The module-whatis entry needs to be "Make Opts: MPI\_HOME=/opt/openmpi".  If 
+the build script uses cmake then configure opts should be "Cmake Opts:".  
+Further, if the build uses a custom build script, configure/make Opts should be 
+N/A.
+
+Lastly, the "Patch:" line will either be 'None' or be the full path to the 
+patch applied to the source directory to get the build to work.
+
+\subsubsection{Package specific preamble}
+
+Below the module-whatis section, four internal variables need to be defined.
+
+\begin{center}
+\begin{table}[h]
+\begin{tabular}{ll}
+		pkgname	& Package base name without versioning \\
+		version & Current package version \\
+		basedir & Where all software packages are installed \\
+		installdir & \${basedir}/\${pkgname}/install/\${version} \\
+\end{tabular}
+\caption {Internal module file variables}
+\end{table}
+\end{center}
+
+The installdir and basedir is the same for all modulefiles on the system.  This 
+preamble allows all module commands to be set with variables.  When updates 
+occur, or small changes are required, only these four lines need to be changed 
+to make the changes.
+
+\subsection{Conflicts and Requirements}
+
+Most application based modulefiles they will load all of the dependency 
+modulefiles needed for them to be used.  This will usually be libraries, 
+compilers, MPI choice, etc.  This should be done using the 'module load' 
+command directly in the modulefile.
+
+The building block module files (compilers and libraries) will usually require 
+conflicts.  No user should have both gcc and intel compilers loaded.  So in the 
+gcc modulefile we prevent intel compiler modulefiles from being loaded:
+
+\begin{center}
+\begin{minted}{bash}
+	conflict compilers/intel
+\end{minted}
+\end{center}
+
+\noindent These conflicts (through inhertiance) will extend to the application 
+modulefiles, since the application modulefiles will load the required 
+environment.
+
+\subsection{Variables that should be defined}
+
+Within the modulefile, there are a number of environment variables that should 
+be set or modified (PATH, LD\_LIBRARY\_PATH, etc...) (table 2).
+
+\begin{table}[h]
+		\begin{tabular}{ll}
+				PATH & directories needed for executables (bin/)\\
+				LD\_LIBRARY\_PATH & Where executables should find shared libraries (lib/) \\
+				LIBRARY\_PATH & Where compilers should find shared libraries (lib/)\\
+				CPATH & Where compilers should look for include headers (include/) \\
+				MANPATH & Where man command will find manpages (share/man) \\
+				INFOPATH & Where info pages are located (share/info) \\
+				PKG\_CONFIG\_PATH & Where pkg-config files are located (lib/pkgconfig) \\
+		\end{tabular}
+		\caption {Variables inside module files}
+\end{table}
+
+
+\subsection{Handling source environment scripts}
+
+Some packages come with a bash or tcsh script to source before using.  On an 
+HPC environment, this can be cumbersome; as the user will have to logout and 
+log back in to reset their shell environment.  Using the env command, you can 
+capture all of the environment changes that the source script includes.
+
+\begin{minted}{bash}
+  $ env | sort > before_script.txt
+  $ source script.sh
+  $ env | soft > after_script.txt
+  $ sdiff -s before_script.txt after_script.txt
+\end{minted}
+
+\noindent Which will provide a list of all environment variables that the 
+source script sets; which can be included into the modulefile.
+
+
+\end{document}
